@@ -1,0 +1,13 @@
+.git
+.github
+tests
+README.md
+LICENSE
+.env
+.env.example
+.env.dockhand
+docker-compose.yml
+requirements-dev.txt
+**/__pycache__
+**/*.pyc
+.pytest_cache

@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      # Live Tracearr contract tests are opt-in (see tests/test_live_tracearr.py)
+      # and there's no Tracearr instance reachable from CI, so they're skipped
+      # here automatically — only the mocked unit/http tests run.
+      - name: Run tests
+        run: python -m pytest tests/ -v
+
+  docker:
+    needs: test
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # GHCR requires a lowercase image path; github.repository preserves
+      # the repo's actual case (Barrow1990/...), so lowercase it explicitly
+      # rather than assuming the owner name happens to already be lowercase.
+      - name: Compute lowercase image name
+        run: echo "IMAGE=ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
+
+      # `dev` builds publish only :dev and :dev-<sha>; they never touch :latest (or any
+      # other release tag), so the production stack can't pick up an unmerged build.
+      - name: Compute image tags
+        run: |
+          if [ "${GITHUB_REF}" = "refs/heads/dev" ]; then
+            {
+              echo 'TAGS<<EOF'
+              echo "${IMAGE}:dev"
+              echo "${IMAGE}:dev-${GITHUB_SHA}"
+              echo 'EOF'
+            } >> "$GITHUB_ENV"
+          else
+            {
+              echo 'TAGS<<EOF'
+              echo "${IMAGE}:latest"
+              echo "${IMAGE}:${GITHUB_SHA}"
+              echo 'EOF'
+            } >> "$GITHUB_ENV"
+          fi
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ env.TAGS }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
