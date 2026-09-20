@@ -1,0 +1,27 @@
+name: Enforce dev to main
+
+# Every change reaches `main` by way of `dev`: a pull request into main is only
+# allowed from this repository's own dev branch. Branch protection can't express "the
+# source branch must be dev" by itself, so this job fails for any other source, and it is
+# a required status check on main (see README, "Branch flow").
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  source-branch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pull requests into main must come from dev
+        # Values go through env, never interpolated into the script: a branch name is
+        # attacker-controlled text.
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          BASE_REPO: ${{ github.repository }}
+        run: |
+          if [ "$HEAD_REF" != "dev" ] || [ "$HEAD_REPO" != "$BASE_REPO" ]; then
+            echo "::error::Pull requests into main must come from this repository's dev branch (this one is from '$HEAD_REF' in '$HEAD_REPO')."
+            exit 1
+          fi
+          echo "OK: dev -> main"
