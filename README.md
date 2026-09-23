@@ -3,9 +3,11 @@
 A minimal [Model Context Protocol](https://modelcontextprotocol.io) server that
 connects to Tracearr (who watches
 what on your Plex/Jellyfin/Emby servers: live streams, watch history, per-user and
-per-title stats), packaged for Docker. **Every tool is read-only** — Tracearr's
-Public API v2 has no write endpoints, so nothing here can change anything in
-Tracearr or on your media server.
+per-title stats), packaged for Docker. **The 14 API-key tools are read-only** —
+Tracearr's Public API v2 has no write endpoints. The **automation (rules) tools**
+can manage Tracearr's rules, but only when you give the server an owner login and
+`MCP_AUTH_TOKEN`; everything that can enable, change or delete a live rule asks you first
+(see [Automations](#automations-rules)).
 
 It runs as a standing network service (streamable-http transport, not stdio),
 so any MCP client on your internal network can connect to
@@ -50,6 +52,49 @@ season UUID → `media_children`. Paginated tools return `meta.nextCursor`; pass
 back as `cursor` for the next page. Page sizes are clamped to what the API accepts
 (100, or 1000 for `watched_media`).
 
+## Automations (rules)
+
+Tracearr calls its rules **automations** (a `policy` acts on violations, a `notification`
+sends alerts). They are **not** on the Public API: they live on Tracearr's internal
+`/api/v1/automations` routes, which accept a login session and reject the `trr_pub_` key.
+So these tools need a Tracearr **username and password**, and they stay hidden unless
+everything below is in place. Call `automations_status` to see exactly what is missing.
+
+Requirements (all checked at startup):
+
+1. `TRACEARR_USERNAME` / `TRACEARR_PASSWORD` set, for a **dedicated Tracearr owner account**
+   (create/update/delete need the owner role; the account is checked at startup and
+   anything else disables the group). A separate account keeps this server's sessions
+   and audit trail apart from yours; give it a long random password.
+2. `MCP_AUTH_TOKEN` set: this server then holds an owner login, so every MCP request
+   must carry the shared secret.
+3. Tracearr 2.0.0 or later, with local login enabled.
+
+The login is a normal sign-in (`POST /api/v1/auth/sign-in/username`); the session lasts 30
+days, and the server signs in again on a 401 (once, single-flight, never in a loop). If
+Tracearr is unreachable at startup the check is retried every 5 minutes.
+
+| Tool | Description |
+|---|---|
+| `automations_status` | Always listed. Whether the group is available and, if not, why |
+| `list_automations` / `get_automation` | Browse and read rules (filters: kind, enabled, search, source, severity, server, trigger) |
+| `automation_runs` / `automation_evaluations` | What a rule has done, and its near-misses |
+| `export_automation` | A rule as a template envelope, a worked example of the definition shape |
+| `dry_run_automation` | Test a definition against recent sessions; saves nothing |
+| `create_automation` | Always saved **inactive**, after a dry run whose result is returned |
+| `update_automation` | Change fields; **asks you first when the rule is active** |
+| `set_automation_active` | Enable or disable; **enabling always asks you first** (a policy can act on streams) |
+| `delete_automation` | **Always asks you first**; run history is deleted with it |
+
+**Human approval** is an MCP elicitation prompt in your client. It fails closed: if the
+client can't show a prompt, or you decline, cancel or leave the box unticked, nothing changes.
+Disabling a rule needs no prompt (the safe direction), and `update_automation` cannot flip
+`isActive`.
+
+**Not exposed:** bulk update/delete, template detach/upgrade, users, servers, settings,
+notification destinations. The account is an owner, so this is a choice of this server,
+not a limit of the login.
+
 ## Privacy
 
 This API returns **people's viewing history, usernames and email addresses**. Set
@@ -67,6 +112,8 @@ Two plain HTTP endpoints, reachable without `MCP_AUTH_TOKEN` (so Docker's
 |---|---|---|---|
 | `GET /health` | The process is up and serving HTTP. Does **not** call Tracearr. | `200 {"status": "ok"}` | (doesn't respond) |
 | `GET /ready` | `TRACEARR_URL` is reachable and `TRACEARR_API_KEY` is accepted (via the streams summary, the cheapest authenticated call). | `200 {"status": "ok", "reachable": true, "authenticated": true, "tracearr": {...}}` | `503 {"status": "error", "reachable": ..., "authenticated": ..., "error": "..."}` |
+
+`/ready` also reports the automation tools' state (`automations`) but a problem there never turns it unhealthy, since the read-only tools still work.
 
 `/ready` says which of these it was: invalid or revoked key (401), key without an
 owner account (403), Tracearr too old to have the v2 API (404), rate limited (429),
@@ -104,7 +151,9 @@ Environment variables (see `.env.example`):
 | `TRACEARR_API_KEY` | yes | — | Tracearr > Settings > General (`trr_pub_...`), owner account |
 | `MCP_HOST` | no | `0.0.0.0` | Interface the server binds to inside the container |
 | `MCP_PORT` | no | `8942` | Port the server listens on |
-| `MCP_AUTH_TOKEN` | no, but strongly recommended | — | Shared secret required as `Authorization: Bearer <token>`. Unset = no auth (see above) |
+| `TRACEARR_USERNAME` | no | — | Dedicated Tracearr **owner** account, enables the automation tools (see above) |
+| `TRACEARR_PASSWORD` | no | — | Its password. Also needs `MCP_AUTH_TOKEN` |
+| `MCP_AUTH_TOKEN` | no, but strongly recommended (required for automations) | — | Shared secret required as `Authorization: Bearer <token>`. Unset = no auth (see above) |
 
 **Compose and `$`.** Docker Compose interpolates `$` in `.env` / `.env.dockhand`
 values, so a secret containing `$` is silently truncated (`abc$Xy1def` becomes

@@ -38,6 +38,7 @@ def test_ready_success_uses_the_cheap_streams_summary(mock_tracearr, no_auth):
         "reachable": True,
         "authenticated": True,
         "tracearr": {"url": server.TRACEARR_URL, "apiVersion": "v2"},
+        "automations": {"enabled": False, "status": "disabled", "reason": "not checked in tests", "account": None},
     }
     assert seen[0].url.path == "/api/v2/public/streams"
     assert dict(seen[0].url.params) == {"summary": "true"}

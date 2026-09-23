@@ -220,11 +220,12 @@ def test_unreachable_tracearr_is_a_readable_error(mock_tracearr):
 # --- the tool set -----------------------------------------------------------
 
 
-def test_every_tool_is_registered_and_read_only():
+def test_every_public_tool_is_registered_and_read_only():
     import asyncio
 
     tools = asyncio.run(server.mcp.list_tools())
-    names = {t.name for t in tools}
+    # automations_status is always listed; the rest of the automation group only when the check passed
+    names = {t.name for t in tools} - {"automations_status"}
 
     assert len(names) == 14
     assert {"active_streams", "watch_history", "watched_media", "list_libraries"} <= names

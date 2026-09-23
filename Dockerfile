@@ -73,7 +73,7 @@ WORKDIR /app
 
 USER app
 
-EXPOSE 8941
+EXPOSE 8942
 
 # Liveness only (process up, HTTP serving) — not Tracearr connectivity, so a
 # transient Tracearr outage doesn't get Dockhand/Docker restarting this
@@ -81,7 +81,7 @@ EXPOSE 8941
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD ["python", "-c", "\
 import os, sys, urllib.request; \
-port = os.environ.get('MCP_PORT', '8941'); \
+port = os.environ.get('MCP_PORT', '8942'); \
 sys.exit(0 if urllib.request.urlopen(f'http://localhost:{port}/health', timeout=3).status == 200 else 1)"]
 
 ENTRYPOINT ["python", "server.py"]
